@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none">
+  <defs>
+    <linearGradient id="studymate-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#6366f1" />
+      <stop offset="100%" stop-color="#4338ca" />
+    </linearGradient>
+    <linearGradient id="accent-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#a855f7" />
+      <stop offset="100%" stop-color="#6366f1" />
+    </linearGradient>
+  </defs>
+  <!-- Background Rounded Rect -->
+  <rect width="48" height="48" rx="12" fill="url(#studymate-grad)" />
+  <!-- Open Book Emblem -->
+  <path d="M12 16.5C12 15.12 13.12 14 14.5 14H22V33H14.5C13.12 33 12 31.88 12 30.5V16.5Z" fill="#ffffff" fill-opacity="0.95" />
+  <path d="M36 16.5C36 15.12 34.88 14 33.5 14H26V33H33.5C34.88 33 36 31.88 36 30.5V16.5Z" fill="#ffffff" fill-opacity="0.95" />
+  <path d="M22 14H26V33H22V14Z" fill="#e0e7ff" />
+  <!-- Spark Accent -->
+  <path d="M35 11L36 8L39 7L36 6L35 3L34 6L31 7L34 8L35 11Z" fill="#fbbf24" />
+</svg>

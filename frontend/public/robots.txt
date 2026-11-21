@@ -1,0 +1,32 @@
+# ==============================================================================
+# StudyMate AI - Robots Exclusion Protocol
+# Production Configuration (Public Indexing Allowed, User Dashboards Disallowed)
+# ==============================================================================
+
+User-agent: *
+Allow: /
+Allow: /landing
+Allow: /login
+Allow: /register
+Allow: /forgot-password
+Allow: /reset-password
+Allow: /verify-email
+Allow: /help
+Allow: /contact
+Allow: /privacy
+Allow: /terms
+
+# Disallow Private Authenticated User Routes (Student Privacy Protection)
+Disallow: /dashboard
+Disallow: /documents
+Disallow: /chat
+Disallow: /summary
+Disallow: /quiz
+Disallow: /flashcards
+Disallow: /progress
+Disallow: /settings
+Disallow: /api/
+Disallow: /uploads/
+
+# Sitemap Location
+Sitemap: https://studymate.ai/sitemap.xml

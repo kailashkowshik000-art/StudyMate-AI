@@ -1,0 +1,145 @@
+# ==============================================================================
+# StudyMate AI - Production & Local Docker Compose Orchestration
+# Services:
+#   - mongo: MongoDB Community Server (Local Database)
+#   - backend: Express Node.js REST API
+#   - frontend: Nginx Reverse Proxy & React SPA
+# ==============================================================================
+
+services:
+  # ----------------------------------------------------------------------------
+  # Local MongoDB Community Database Service (Phase 6.3)
+  # ----------------------------------------------------------------------------
+  mongo:
+    image: mongo:7.0
+    container_name: studymate-mongodb
+    restart: unless-stopped
+    ports:
+      # Bound strictly to host loopback interface to prevent public exposure
+      - "127.0.0.1:27017:27017"
+    volumes:
+      # Named persistent volume to survive container restarts
+      - studymate_mongodb_data:/data/db
+    networks:
+      - studymate-network
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  # ----------------------------------------------------------------------------
+  # Redis Distributed Cache & BullMQ Queue Broker (Phase 8.5)
+  # ----------------------------------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    container_name: studymate-redis
+    restart: unless-stopped
+    ports:
+      # Bound strictly to host loopback interface to prevent public exposure
+      - "127.0.0.1:6379:6379"
+    volumes:
+      - studymate_redis_data:/data
+    networks:
+      - studymate-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+
+  # ----------------------------------------------------------------------------
+  # Backend API Service
+  # ----------------------------------------------------------------------------
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    image: studymate-ai-backend:latest
+    container_name: studymate-backend
+    restart: unless-stopped
+    depends_on:
+      mongo:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      - NODE_ENV=production
+      - PORT=5000
+      - CLIENT_URL=${CLIENT_URL:-http://localhost:3000}
+      - MONGODB_URI=${MONGODB_URI:-mongodb://mongo:27017/studymate_db}
+      - USE_MEMORY_DB=false
+      - DNS_SERVERS=system
+      - JWT_SECRET=${JWT_SECRET}
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+      - GEMINI_MODEL=${GEMINI_MODEL:-gemini-1.5-flash}
+      - REDIS_HOST=${REDIS_HOST:-redis}
+      - REDIS_PORT=${REDIS_PORT:-6379}
+      - REDIS_PASSWORD=${REDIS_PASSWORD:-}
+      - REDIS_URL=${REDIS_URL:-}
+    # Internal container port exposed only within the Docker network
+    expose:
+      - "5000"
+    # Port 5000 is intentionally NOT published to the host for production security.
+    # All public ingress flows through the Nginx reverse proxy on port 3000/80.
+    volumes:
+      # Persistent storage volume for uploaded study PDFs
+      - studymate_uploads:/app/uploads
+    networks:
+      - studymate-network
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:5000/healthz/live"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+  # ----------------------------------------------------------------------------
+  # Frontend Web Service (Nginx Reverse Proxy & React SPA)
+  # ----------------------------------------------------------------------------
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        - VITE_API_URL=/api
+    image: studymate-ai-frontend:latest
+    container_name: studymate-frontend
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "${FRONTEND_PORT:-3000}:80"
+    networks:
+      - studymate-network
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:80/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+# ------------------------------------------------------------------------------
+# Persistent Volume Configuration
+# ------------------------------------------------------------------------------
+volumes:
+  studymate_uploads:
+    name: studymate_uploads
+    driver: local
+  studymate_mongodb_data:
+    name: studymate_mongodb_data
+    driver: local
+  studymate_redis_data:
+    name: studymate_redis_data
+    driver: local
+
+# ------------------------------------------------------------------------------
+# Isolated Internal Network
+# ------------------------------------------------------------------------------
+networks:
+  studymate-network:
+    name: studymate-network
+    driver: bridge
