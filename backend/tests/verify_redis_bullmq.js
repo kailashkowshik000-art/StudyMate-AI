@@ -27,7 +27,10 @@ import {
   getRedisConfig,
   getRedisConnectionOptions,
   getSanitizedRedisInfo,
+  createRedisClient,
+  parseRedisUrl,
 } from "../config/redisConfig.js";
+import { Queue } from "bullmq";
 import {
   DOCUMENT_QUEUE_NAME,
   PROCESSING_STAGES,
@@ -189,7 +192,7 @@ async function runTestSuite() {
   const originalEnv = { ...process.env };
 
   try {
-    // 1.1 Custom Redis Host & Port
+    // 1.1 Local Redis Configuration & Custom Host/Port
     process.env.REDIS_HOST = "redis.internal.studymate";
     process.env.REDIS_PORT = "6380";
     process.env.REDIS_PASSWORD = "super_secret_redis_password_123";
@@ -202,8 +205,11 @@ async function runTestSuite() {
       "Redis connection options parse custom host and port correctly"
     );
     assert(
-      redisOpts.tls !== undefined && redisOpts.maxRetriesPerRequest === null,
-      "Redis options enforce TLS and BullMQ requirement (maxRetriesPerRequest: null)"
+      redisOpts.password === "super_secret_redis_password_123" &&
+      redisOpts.tls !== undefined &&
+      redisOpts.maxRetriesPerRequest === null &&
+      redisOpts.enableReadyCheck === false,
+      "Redis options enforce authentication, TLS, and BullMQ requirements (maxRetriesPerRequest: null, enableReadyCheck: false)"
     );
 
     // 1.2 Sanitized Metadata (No credentials leak)
@@ -217,26 +223,70 @@ async function runTestSuite() {
       "CRITICAL: Redis credentials are NEVER exposed in sanitized monitoring metadata"
     );
 
-    // 1.3 Full Connection URI parsing
-    process.env.REDIS_URL = "rediss://app_user:secret_token_abc@redis-cluster.cloud:6379/0";
-    const uriOpts = getRedisConnectionOptions();
+    // 1.3 Remote Redis URL configuration (redis:// with authentication and database index)
+    process.env.REDIS_URL = "redis://admin_user:render_redis_secret_99@red-render123.render.com:6380/2";
+    const remoteUrlOpts = getRedisConnectionOptions();
     assert(
-      uriOpts.url === "rediss://app_user:secret_token_abc@redis-cluster.cloud:6379/0",
-      "REDIS_URL takes precedence and is supported directly"
+      remoteUrlOpts.host === "red-render123.render.com" &&
+      remoteUrlOpts.port === 6380 &&
+      remoteUrlOpts.username === "admin_user" &&
+      remoteUrlOpts.password === "render_redis_secret_99" &&
+      remoteUrlOpts.db === 2,
+      "Remote redis:// URL extracts host, port, username, password and db correctly without { url } wrapper"
     );
     assert(
-      uriOpts.tls !== undefined,
-      "rediss:// scheme automatically enables TLS configuration"
+      remoteUrlOpts.url === undefined && remoteUrlOpts.maxRetriesPerRequest === null,
+      "Remote redis:// options omit bare url property to ensure full ioredis/BullMQ compatibility"
+    );
+
+    // 1.4 TLS Redis URL configuration (rediss:// scheme)
+    process.env.REDIS_URL = "rediss://:upstash_token_secure_456@upstash-cluster.io:6379/1";
+    const tlsUrlOpts = getRedisConnectionOptions();
+    assert(
+      tlsUrlOpts.host === "upstash-cluster.io" &&
+      tlsUrlOpts.port === 6379 &&
+      tlsUrlOpts.password === "upstash_token_secure_456" &&
+      tlsUrlOpts.db === 1 &&
+      tlsUrlOpts.tls !== undefined,
+      "TLS rediss:// scheme automatically enables TLS and parses credentials and database number"
     );
 
     const sanitizedUriInfo = getSanitizedRedisInfo();
     assert(
-      sanitizedUriInfo.host === "redis-cluster.cloud" &&
-        !JSON.stringify(sanitizedUriInfo).includes("secret_token_abc"),
-      "Sanitized URL info extracts hostname without exposing authentication token"
+      sanitizedUriInfo.host === "upstash-cluster.io" &&
+      sanitizedUriInfo.tls === true &&
+      sanitizedUriInfo.hasAuth === true &&
+      !JSON.stringify(sanitizedUriInfo).includes("upstash_token_secure_456"),
+      "Sanitized URL info extracts hostname and TLS status without exposing authentication token"
     );
 
-    // 1.4 Production Requirement Safeguard
+    // 1.5 BullMQ Connection Compatibility
+    const bullmqQueue = new Queue("test_compat_queue", {
+      connection: tlsUrlOpts,
+    });
+    assert(
+      bullmqQueue.opts.connection.host === "upstash-cluster.io" &&
+      bullmqQueue.opts.connection.port === 6379 &&
+      bullmqQueue.opts.connection.password === "upstash_token_secure_456" &&
+      bullmqQueue.opts.connection.maxRetriesPerRequest === null &&
+      bullmqQueue.opts.connection.enableReadyCheck === false,
+      "BullMQ Queue successfully inherits parsed Redis connection options directly"
+    );
+    await bullmqQueue.close();
+
+    // 1.6 createRedisClient() Compatibility
+    const directClient = createRedisClient({ lazyConnect: true });
+    assert(
+      directClient.options.host === "upstash-cluster.io" &&
+      directClient.options.port === 6379 &&
+      directClient.options.password === "upstash_token_secure_456" &&
+      directClient.options.tls !== undefined &&
+      directClient.options.maxRetriesPerRequest === null,
+      "createRedisClient() initializes ioredis with identical parsed remote configuration"
+    );
+    directClient.disconnect();
+
+    // 1.7 Production Requirement Safeguard
     // When in production, if Redis is unavailable, queue initialization must fail safely
     process.env.NODE_ENV = "production";
     process.env.REDIS_HOST = "127.0.0.1";

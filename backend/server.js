@@ -48,7 +48,7 @@ if (process.env.NODE_ENV !== "test") {
 // Start HTTP Server if not running in test mode
 let server = null;
 if (process.env.NODE_ENV !== "test") {
-  server = app.listen(PORT, () => {
+  server = app.listen(PORT, "0.0.0.0", () => {
     console.log(`[StudyMate AI Backend] Server running on http://localhost:${PORT}`);
     console.log(`[StudyMate AI Backend] Health check: http://localhost:${PORT}/api/health`);
   });
