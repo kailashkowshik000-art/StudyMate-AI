@@ -4,7 +4,7 @@
  * - Temporary PDF Creation
  * - Text Extraction (pdfService)
  * - Semantic Chunking (chunkService)
- * - Embedding Generation (embeddingService - text-embedding-004 / fallback)
+ * - Embedding Generation (embeddingService - gemini-embedding-001 / fallback)
  * - Vector Similarity Search (vectorSearchService)
  * - Grounded Question Answering (geminiService)
  * - Source Citations Validation ('Page X • Section Y')

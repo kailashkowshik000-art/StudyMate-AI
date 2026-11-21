@@ -1,10 +1,10 @@
-import { GoogleGenerativeAI } from "@google/generative-ai";
+import { GoogleGenAI } from "@google/genai";
 import Document from "../models/Document.js";
 import Flashcard from "../models/Flashcard.js";
 import LearningProfile from "../models/LearningProfile.js";
 import { calculateStudyStats } from "./learningAnalyticsService.js";
 
-const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-1.5-flash";
+const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-3.5-flash-lite";
 
 /**
  * Generate personalized study recommendations based strictly on actual user data
@@ -136,8 +136,7 @@ export async function generateRecommendations(userId) {
 
   if (apiKey && apiKey.trim() && apiKey !== "your_gemini_api_key_here") {
     try {
-      const genAI = new GoogleGenerativeAI(apiKey);
-      const model = genAI.getGenerativeModel({ model: GEMINI_MODEL });
+      const ai = new GoogleGenAI({ apiKey });
       const prompt = `You are StudyMate AI, an academic study coach.
 Write a concise, 2-sentence encouraging study guidance statement based ONLY on these real student stats:
 - Current Streak: ${stats.currentStreak}
@@ -148,8 +147,11 @@ Write a concise, 2-sentence encouraging study guidance statement based ONLY on t
 
 Do NOT invent fake scores or metrics. Be motivating, specific, and direct.`;
 
-      const res = await model.generateContent(prompt);
-      advisorSummary = res.response.text().trim();
+      const res = await ai.models.generateContent({
+        model: GEMINI_MODEL,
+        contents: prompt,
+      });
+      advisorSummary = (res.text || "").trim();
     } catch (err) {
       console.warn(`[RECOMMENDATIONS] Gemini advisor summary fallback: ${err.message}`);
     }

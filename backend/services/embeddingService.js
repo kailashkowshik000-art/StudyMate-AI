@@ -1,7 +1,7 @@
-import { GoogleGenerativeAI } from "@google/generative-ai";
+import { GoogleGenAI } from "@google/genai";
 
 export const EMBEDDING_MODEL_NAME =
-  process.env.GEMINI_EMBEDDING_MODEL || "text-embedding-004";
+  process.env.GEMINI_EMBEDDING_MODEL || "gemini-embedding-001";
 export const EMBEDDING_DIMENSION =
   parseInt(process.env.EMBEDDING_DIMENSION, 10) || 768;
 
@@ -72,12 +72,18 @@ export async function generateEmbedding(text) {
   }
 
   try {
-    const genAI = new GoogleGenerativeAI(apiKey);
-    const model = genAI.getGenerativeModel({ model: EMBEDDING_MODEL_NAME });
-    const result = await model.embedContent(text);
+    const ai = new GoogleGenAI({ apiKey });
+    const result = await ai.models.embedContent({
+      model: EMBEDDING_MODEL_NAME,
+      contents: text,
+      config: {
+        outputDimensionality: EMBEDDING_DIMENSION,
+      },
+    });
 
-    if (result?.embedding?.values) {
-      return result.embedding.values;
+    const values = result?.embedding?.values || result?.embeddings?.[0]?.values;
+    if (values && Array.isArray(values) && values.length > 0) {
+      return values;
     }
     throw new Error("Invalid embedding response structure from Gemini API");
   } catch (err) {
@@ -113,8 +119,7 @@ export async function generateEmbeddings(chunks) {
   }
 
   try {
-    const genAI = new GoogleGenerativeAI(apiKey);
-    const model = genAI.getGenerativeModel({ model: EMBEDDING_MODEL_NAME });
+    const ai = new GoogleGenAI({ apiKey });
 
     // Batch in groups of 20 to avoid exceeding payload limits
     const batchSize = 20;
@@ -124,20 +129,23 @@ export async function generateEmbeddings(chunks) {
       const batch = chunks.slice(i, i + batchSize);
 
       try {
-        const batchResponse = await model.batchEmbedContents({
-          requests: batch.map((c) => ({
-            content: { parts: [{ text: c.text }] },
-          })),
+        const batchResponse = await ai.models.embedContent({
+          model: EMBEDDING_MODEL_NAME,
+          contents: batch.map((c) => c.text),
+          config: {
+            outputDimensionality: EMBEDDING_DIMENSION,
+          },
         });
 
+        const embeddings = batchResponse?.embeddings;
         if (
-          batchResponse?.embeddings &&
-          batchResponse.embeddings.length === batch.length
+          embeddings &&
+          embeddings.length === batch.length
         ) {
           batch.forEach((c, idx) => {
             enrichedChunks.push({
               ...c,
-              embedding: batchResponse.embeddings[idx].values,
+              embedding: embeddings[idx].values,
             });
           });
         } else {

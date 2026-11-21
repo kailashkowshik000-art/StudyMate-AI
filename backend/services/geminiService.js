@@ -1,4 +1,4 @@
-import { GoogleGenerativeAI } from "@google/generative-ai";
+import { GoogleGenAI } from "@google/genai";
 import {
   detectDocumentDomain,
   buildComprehensiveModule,
@@ -8,7 +8,7 @@ import {
   extractOrSynthesizeAlgorithms,
 } from "./learningNotesService.js";
 
-const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-1.5-flash";
+const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-3.5-flash-lite";
 
 const SYSTEM_STUDY_TUTOR_PROMPT = `You are StudyMate AI, an expert academic study assistant and encouraging tutor.
 Your mission is to help students learn effectively from their course materials and uploaded textbooks/notes.
@@ -118,17 +118,7 @@ export async function generateAnswer({
   }
 
   try {
-    const genAI = new GoogleGenerativeAI(apiKey);
-    const model = genAI.getGenerativeModel({
-      model: GEMINI_MODEL,
-      systemInstruction: SYSTEM_STUDY_TUTOR_PROMPT,
-      generationConfig: {
-        temperature: 0.3,
-        topP: 0.8,
-        maxOutputTokens: 1024,
-      },
-    });
-
+    const ai = new GoogleGenAI({ apiKey });
     const contextText = buildContextString(contextChunks);
 
     let prompt = `DOCUMENT CONTEXT:\n${contextText}\n\n`;
@@ -153,9 +143,18 @@ export async function generateAnswer({
     }
     prompt += `STUDENT QUESTION:\n${question}\n\nTUTOR ANSWER:`;
 
-    const result = await model.generateContent(prompt);
-    const response = await result.response;
-    const answer = response.text();
+    const response = await ai.models.generateContent({
+      model: GEMINI_MODEL,
+      contents: prompt,
+      config: {
+        systemInstruction: SYSTEM_STUDY_TUTOR_PROMPT,
+        temperature: 0.3,
+        topP: 0.8,
+        maxOutputTokens: 1024,
+      },
+    });
+
+    const answer = response.text || "";
 
     console.log(`[GEMINI] Response received (${answer.length} characters)`);
     return {
@@ -321,15 +320,7 @@ export async function generateSummary(firstArg, secondArg) {
   }
 
   try {
-    const genAI = new GoogleGenerativeAI(apiKey);
-    const model = genAI.getGenerativeModel({
-      model: GEMINI_MODEL,
-      generationConfig: {
-        temperature: 0.3,
-        maxOutputTokens: 8192,
-        responseMimeType: "application/json",
-      },
-    });
+    const ai = new GoogleGenAI({ apiKey });
 
     // Check size: If document has <= 30 chunks, generate in a single unified prompt.
     // If > 30 chunks, process module batches hierarchically to avoid output token truncation.
@@ -445,9 +436,16 @@ REQUIREMENTS:
 DOCUMENT CONTENT:
 ${contextText}`;
 
-      const result = await model.generateContent(prompt);
-      const response = await result.response;
-      const json = safeParseJson(response.text());
+      const response = await ai.models.generateContent({
+        model: GEMINI_MODEL,
+        contents: prompt,
+        config: {
+          temperature: 0.3,
+          maxOutputTokens: 8192,
+          responseMimeType: "application/json",
+        },
+      });
+      const json = safeParseJson(response.text);
 
       if (json && json.overview && Array.isArray(json.modules) && json.modules.length > 0) {
         console.log(`[GEMINI] Successfully generated comprehensive notes with ${json.modules.length} modules`);
@@ -511,8 +509,16 @@ MODULE CONTENT:
 ${modContext}`;
 
         try {
-          const modResult = await model.generateContent(modPrompt);
-          const modJson = safeParseJson((await modResult.response).text());
+          const modResult = await ai.models.generateContent({
+            model: GEMINI_MODEL,
+            contents: modPrompt,
+            config: {
+              temperature: 0.3,
+              maxOutputTokens: 8192,
+              responseMimeType: "application/json",
+            },
+          });
+          const modJson = safeParseJson(modResult.text);
           if (modJson && modJson.title && Array.isArray(modJson.topics)) {
             generatedModules.push(modJson);
           } else {
@@ -570,14 +576,7 @@ export async function generateQuiz({
   }
 
   try {
-    const genAI = new GoogleGenerativeAI(apiKey);
-    const model = genAI.getGenerativeModel({
-      model: GEMINI_MODEL,
-      generationConfig: {
-        temperature: 0.4,
-        responseMimeType: "application/json",
-      },
-    });
+    const ai = new GoogleGenAI({ apiKey });
 
     const prompt = `You are a university professor creating a high-quality ${difficulty}-level multiple choice quiz based strictly on the provided study material from "${documentTitle}".
 
@@ -601,9 +600,15 @@ Return your response as a valid JSON object matching this schema:
 DOCUMENT CONTENT:
 ${contextText}`;
 
-    const result = await model.generateContent(prompt);
-    const response = await result.response;
-    const json = safeParseJson(response.text());
+    const response = await ai.models.generateContent({
+      model: GEMINI_MODEL,
+      contents: prompt,
+      config: {
+        temperature: 0.4,
+        responseMimeType: "application/json",
+      },
+    });
+    const json = safeParseJson(response.text);
 
     if (json && Array.isArray(json.questions) && json.questions.length > 0) {
       // Validate schema of each question
@@ -950,14 +955,7 @@ export async function generateStudyPlan({
 
   if (apiKey && apiKey.trim() && apiKey !== "your_gemini_api_key_here") {
     try {
-      const genAI = new GoogleGenerativeAI(apiKey);
-      const model = genAI.getGenerativeModel({
-        model: GEMINI_MODEL,
-        generationConfig: {
-          temperature: 0.3,
-          responseMimeType: "application/json",
-        },
-      });
+      const ai = new GoogleGenAI({ apiKey });
 
       const prompt = `You are an academic curriculum study planner.
 Generate a structured, day-by-day study plan leading up to the student's exam on ${targetDate.toISOString().split("T")[0]}.
@@ -989,8 +987,15 @@ Return JSON in this EXACT structure:
   ]
 }`;
 
-      const res = await model.generateContent(prompt);
-      const json = safeParseJson(res.response.text());
+      const res = await ai.models.generateContent({
+        model: GEMINI_MODEL,
+        contents: prompt,
+        config: {
+          temperature: 0.3,
+          responseMimeType: "application/json",
+        },
+      });
+      const json = safeParseJson(res.text);
 
       if (json && Array.isArray(json.tasks) && json.tasks.length > 0) {
         const formattedTasks = json.tasks.map((t, idx) => {
@@ -1048,14 +1053,7 @@ export async function generateFlashcards({
 
   if (apiKey && apiKey.trim() && apiKey !== "your_gemini_api_key_here") {
     try {
-      const genAI = new GoogleGenerativeAI(apiKey);
-      const model = genAI.getGenerativeModel({
-        model: GEMINI_MODEL,
-        generationConfig: {
-          temperature: 0.4,
-          responseMimeType: "application/json",
-        },
-      });
+      const ai = new GoogleGenAI({ apiKey });
 
       const prompt = `You are an expert tutor creating study flashcards for university students.
 Extract exactly ${count} high-yield flashcards from the provided document material for "${documentTitle}".
@@ -1080,8 +1078,15 @@ Return a valid JSON object matching this schema:
 DOCUMENT CONTENT:
 ${contextText}`;
 
-      const res = await model.generateContent(prompt);
-      const json = safeParseJson(res.response.text());
+      const res = await ai.models.generateContent({
+        model: GEMINI_MODEL,
+        contents: prompt,
+        config: {
+          temperature: 0.4,
+          responseMimeType: "application/json",
+        },
+      });
+      const json = safeParseJson(res.text);
 
       if (json && Array.isArray(json.flashcards) && json.flashcards.length > 0) {
         const validated = json.flashcards
