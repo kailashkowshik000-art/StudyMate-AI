@@ -180,12 +180,35 @@ async function request(endpoint, options = {}, isRetry = false) {
         }
       }
 
+      // Determine human-readable error message from response data or status
+      const errorMessage =
+        data?.message ||
+        data?.error ||
+        (Array.isArray(data?.errors)
+          ? data.errors.map((e) => (typeof e === "string" ? e : e.msg || e.message)).join(", ")
+          : null) ||
+        (response.status === 404
+          ? "The requested resource was not found."
+          : response.status === 403
+          ? "Access forbidden. You do not have permission to perform this action."
+          : response.status === 409
+          ? "Conflict detected. The resource already exists."
+          : response.status === 429
+          ? "Too many requests. Please wait a moment and try again."
+          : response.status >= 500
+          ? "An unexpected server error occurred. Please try again shortly."
+          : `Request failed with status ${response.status}`);
+
+      const error = new Error(errorMessage);
+      error.status = response.status;
+      error.data = data;
+
       if (response.status === 403) {
         error.isForbidden = true;
       } else if (response.status >= 500) {
         error.isServerError = true;
         // Sanitize any raw server traces or database messages
-        if (data.stack || (data.message && (data.message.includes("Mongo") || data.message.includes("at ")))) {
+        if (data?.stack || (data?.message && (data.message.includes("Mongo") || data.message.includes("at ")))) {
           error.message = "An unexpected server error occurred. Please try again shortly.";
         }
       }
