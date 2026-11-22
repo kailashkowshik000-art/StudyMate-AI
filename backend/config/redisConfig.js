@@ -156,9 +156,10 @@ export function getRedisConnectionOptions(overrides = {}) {
     ...(tlsConfig ? { tls: tlsConfig } : {}),
     maxRetriesPerRequest: null,
     enableReadyCheck: false,
+    enableOfflineQueue: true,
     retryStrategy,
     connectTimeout: 10000,
-    lazyConnect: true,
+    lazyConnect: false,
     reconnectOnError: (err) => {
       const targetError = "READONLY";
       if (err && err.message && err.message.includes(targetError)) {

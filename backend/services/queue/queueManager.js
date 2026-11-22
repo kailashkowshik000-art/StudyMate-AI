@@ -23,6 +23,52 @@ let redisClientCheck = null;
 let isInitialized = false;
 
 /**
+ * Waits for a Redis client to reach the "ready" state before executing commands.
+ * Strictly avoids calling connect() if the client is already connecting or connected.
+ */
+function waitForClientReady(client, timeoutMs = 5000) {
+  if (client.status === "ready") {
+    return Promise.resolve();
+  }
+
+  return new Promise((resolve, reject) => {
+    let timer = null;
+
+    const cleanup = () => {
+      if (timer) clearTimeout(timer);
+      client.removeListener("ready", onReady);
+      client.removeListener("end", onEnd);
+    };
+
+    const onReady = () => {
+      cleanup();
+      resolve();
+    };
+
+    const onEnd = () => {
+      cleanup();
+      reject(new Error("Redis connection closed before becoming ready"));
+    };
+
+    timer = setTimeout(() => {
+      cleanup();
+      reject(new Error(`Redis connection timed out after ${timeoutMs}ms (current status: ${client.status})`));
+    }, timeoutMs);
+
+    client.once("ready", onReady);
+    client.once("end", onEnd);
+
+    // Only call connect() if the client is in "wait" state (lazyConnect: true)
+    if (client.status === "wait") {
+      client.connect().catch((err) => {
+        cleanup();
+        reject(err);
+      });
+    }
+  });
+}
+
+/**
  * Probes whether the Redis server is responsive.
  */
 export async function checkRedisHealth() {
@@ -35,17 +81,27 @@ export async function checkRedisHealth() {
   }
 
   try {
-    if (!redisClientCheck) {
+    if (!redisClientCheck || redisClientCheck.status === "end" || redisClientCheck.status === "close") {
+      if (redisClientCheck) {
+        try {
+          redisClientCheck.disconnect();
+        } catch {}
+      }
       redisClientCheck = createRedisClient({
-        connectTimeout: 1000,
+        connectTimeout: 5000,
         maxRetriesPerRequest: 1,
-        retryStrategy: () => null,
-        enableOfflineQueue: false,
+        enableOfflineQueue: true,
+        lazyConnect: false,
+        retryStrategy: (times) => Math.min(times * 500, 3000),
       });
     }
+
+    // Wait until Redis is confirmed ready before issuing PING
+    await waitForClientReady(redisClientCheck, 5000);
+
     const pong = await Promise.race([
       redisClientCheck.ping(),
-      new Promise((_, reject) => setTimeout(() => reject(new Error("Redis ping timeout")), 1500)),
+      new Promise((_, reject) => setTimeout(() => reject(new Error("Redis ping timeout")), 5000)),
     ]);
     redisAvailable = pong === "PONG";
     return {
@@ -55,6 +111,13 @@ export async function checkRedisHealth() {
     };
   } catch (err) {
     redisAvailable = false;
+    // Tear down failed/unusable client so next check starts with a clean slate
+    if (redisClientCheck && (redisClientCheck.status === "end" || redisClientCheck.status === "close")) {
+      try {
+        redisClientCheck.disconnect();
+      } catch {}
+      redisClientCheck = null;
+    }
     return {
       connected: false,
       status: "disconnected",
@@ -279,7 +342,11 @@ export async function shutdownQueue() {
     await closeDocumentWorker();
     await closeDocumentQueue();
     if (redisClientCheck) {
-      await redisClientCheck.quit().catch(() => {});
+      await redisClientCheck.quit().catch(() => {
+        try {
+          redisClientCheck.disconnect();
+        } catch {}
+      });
       redisClientCheck = null;
     }
   } catch {}

@@ -30,6 +30,7 @@ import {
   createRedisClient,
   parseRedisUrl,
 } from "../config/redisConfig.js";
+import { checkRedisHealth, shutdownQueue } from "../services/queue/queueManager.js";
 import { Queue } from "bullmq";
 import {
   DOCUMENT_QUEUE_NAME,
@@ -211,6 +212,10 @@ async function runTestSuite() {
       redisOpts.enableReadyCheck === false,
       "Redis options enforce authentication, TLS, and BullMQ requirements (maxRetriesPerRequest: null, enableReadyCheck: false)"
     );
+    assert(
+      redisOpts.lazyConnect === false && redisOpts.enableOfflineQueue === true,
+      "Redis options configure lazyConnect: false and enableOfflineQueue: true by default"
+    );
 
     // 1.2 Sanitized Metadata (No credentials leak)
     const sanitizedInfo = getSanitizedRedisInfo();
@@ -262,7 +267,7 @@ async function runTestSuite() {
 
     // 1.5 BullMQ Connection Compatibility
     const bullmqQueue = new Queue("test_compat_queue", {
-      connection: tlsUrlOpts,
+      connection: { ...tlsUrlOpts, lazyConnect: true },
     });
     assert(
       bullmqQueue.opts.connection.host === "upstash-cluster.io" &&
@@ -288,6 +293,7 @@ async function runTestSuite() {
 
     // 1.7 Production Requirement Safeguard
     // When in production, if Redis is unavailable, queue initialization must fail safely
+    delete process.env.REDIS_URL;
     process.env.NODE_ENV = "production";
     process.env.REDIS_HOST = "127.0.0.1";
     process.env.REDIS_PORT = "6399"; // Non-existent port to simulate failure
@@ -310,6 +316,22 @@ async function runTestSuite() {
       prodFailedSafely,
       "Production safeguard: Throws fatal configuration error when Redis is unavailable in production"
     );
+
+    // 1.8 checkRedisHealth() Live Socket Probe Resilience
+    // When Redis is unreachable in production mode, checkRedisHealth must fail gracefully
+    // and report disconnected WITHOUT throwing "Stream isn't writeable and enableOfflineQueue options is false"
+    process.env.NODE_ENV = "production";
+    process.env.REDIS_HOST = "127.0.0.1";
+    process.env.REDIS_PORT = "6399";
+    const healthResult = await checkRedisHealth();
+    assert(
+      healthResult.connected === false &&
+      healthResult.status === "disconnected" &&
+      !healthResult.message.includes("Stream isn't writeable") &&
+      !healthResult.message.includes("enableOfflineQueue"),
+      "checkRedisHealth() handles unreachable Redis safely without throwing 'Stream isn't writeable'"
+    );
+    await shutdownQueue();
   } finally {
     // Restore environment
     process.env = { ...originalEnv };
